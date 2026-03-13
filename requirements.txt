@@ -4,4 +4,4 @@ flask
 duckduckgo-search
 pymongo
 dnspython
-npillow
+pillow
