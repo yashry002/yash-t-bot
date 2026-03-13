@@ -1,8 +1,6 @@
 pyTelegramBotAPI
 groq
 flask
-{
-    "action": "Update requirements.txt",
+"action": "Update GitHub File",
     "file": "requirements.txt",
-    "code": "pyTelegramBotAPI\ngroq\nflask\nduckduckgo-search"
-  },
+    "correct_content": "pyTelegramBotAPI\ngroq\nflask\nduckduckgo-search\npymongo\ndnspython"
