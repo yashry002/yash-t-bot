@@ -245,41 +245,64 @@ def gender(call):
     bot.send_message(call.message.chat.id,"Kya main tumhe ek baat bataun? (haan / nahi)")
 
 # ---------------- IMAGE VISION ----------------
-
 @bot.message_handler(content_types=["photo"])
-def photo(message):
+def photo_handler(message):
+
+    uid = str(message.from_user.id)
 
     try:
 
-        file_id=message.photo[-1].file_id
+        bot.send_chat_action(message.chat.id,"typing")
 
-        file_info=bot.get_file(file_id)
+        # get highest resolution photo
+        file_id = message.photo[-1].file_id
 
-        file=bot.download_file(file_info.file_path)
+        file_info = bot.get_file(file_id)
 
-        img=base64.b64encode(file).decode("utf-8")
+        downloaded_file = bot.download_file(file_info.file_path)
 
-        vision=client.chat.completions.create(
+        # convert image to base64
+        img_base64 = base64.b64encode(downloaded_file).decode("utf-8")
+
+        # send to vision model
+        response = client.chat.completions.create(
 
             model="llama-3.2-11b-vision-preview",
 
-            messages=[{
-                "role":"user",
-                "content":[
-                    {"type":"text","text":"Analyze this image"},
-                    {"type":"image_url",
-                    "image_url":{
-                        "url":f"data:image/jpeg;base64,{img}"
-                    }}
-                ]
-            }]
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "User sent this image. Identify what is in the image and answer the question."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+
+            max_tokens=500
         )
 
-        bot.reply_to(message,vision.choices[0].message.content)
+        answer = response.choices[0].message.content
 
-    except:
+        bot.reply_to(message, answer)
 
-        bot.reply_to(message,"Image analysis error")
+    except Exception as e:
+
+        print("VISION ERROR:",e)
+
+        bot.reply_to(
+            message,
+            "Image analyze nahi ho paayi. Please clear photo bhejo."
+        )
+
 
 # ---------------- COMMANDS ----------------
 
