@@ -15,7 +15,7 @@ app = Flask("")
 
 @app.route("/")
 def home():
-    return "Yash.t AI Bot Running 🚀"
+    return "yash.t AI bot running 🚀"
 
 def run():
     port = int(os.environ.get("PORT",8080))
@@ -27,20 +27,19 @@ def keep_alive():
 
 # ---------------- TOKENS ----------------
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GROQ_KEY = os.environ.get("GROQ_API_KEY")
-MONGO_URI = os.environ.get("MONGO_URI")
+TOKEN=os.environ.get("TELEGRAM_BOT_TOKEN")
+GROQ_KEY=os.environ.get("GROQ_API_KEY")
+MONGO_URI=os.environ.get("MONGO_URI")
 
-bot = telebot.TeleBot(TOKEN)
-client = Groq(api_key=GROQ_KEY)
+bot=telebot.TeleBot(TOKEN)
+client=Groq(api_key=GROQ_KEY)
 
 # ---------------- DATABASE ----------------
 
-mongo = MongoClient(MONGO_URI)
-db = mongo["ai_memory"]
+mongo=MongoClient(MONGO_URI)
+db=mongo["yash_ai"]
 
-users = db["users"]
-history = db["history"]
+history=db["history"]
 
 # ---------------- MEMORY ----------------
 
@@ -55,16 +54,42 @@ def save_chat(uid,user,bot_reply):
 
 def load_history(uid):
 
-    chats = history.find({"uid":uid}).sort("time",-1).limit(6)
+    chats=history.find({"uid":uid}).sort("time",-1).limit(6)
 
-    result=[]
+    msgs=[]
 
     for c in chats:
 
-        result.append({"role":"user","content":c["user"]})
-        result.append({"role":"assistant","content":c["bot"]})
+        msgs.append({"role":"user","content":c["user"]})
+        msgs.append({"role":"assistant","content":c["bot"]})
 
-    return result
+    return msgs
+
+# ---------------- PERSONALITY ----------------
+
+def system_prompt():
+
+    return """
+You are yash.t AI assistant.
+
+Creator: Yash Tiwari ji (smart student)
+
+Birthday: 29 January
+Favorite classes: 9th and 10th
+
+Rules:
+
+If someone asks "Who made you?"
+Say:
+"Main zyada details nahi bata sakta, par mujhe Yash Tiwari ji ne banaya hai."
+
+If someone asks about girlfriend:
+Say:
+"Yeh meri personal cheez hai. Itna hint de sakta hoon ki meri bhi feelings hain."
+
+Speak simple Hinglish.
+Be friendly like a helpful elder brother.
+"""
 
 # ---------------- SEARCH ----------------
 
@@ -72,18 +97,13 @@ def search_web(query):
 
     results=[]
 
-    try:
+    with DDGS() as ddgs:
 
-        with DDGS() as ddgs:
+        for r in ddgs.text(query,max_results=3):
 
-            for r in ddgs.text(query,max_results=3):
-
-                results.append(
-                    f"{r['title']}\n{r['body']}\n{r['href']}"
-                )
-
-    except:
-        return "Search error"
+            results.append(
+                f"{r['title']}\n{r['body']}\n{r['href']}"
+            )
 
     return "\n\n".join(results)
 
@@ -121,6 +141,11 @@ def ask_ai(uid,text):
 
     messages=load_history(uid)
 
+    messages.insert(0,{
+        "role":"system",
+        "content":system_prompt()
+    })
+
     messages.append({
         "role":"user",
         "content":text
@@ -144,7 +169,7 @@ def start(message):
 
         message.chat.id,
 
-        """🤖 Yash.t AI Bot
+        """🤖 yash.t AI
 
 Commands:
 
@@ -155,7 +180,7 @@ Commands:
 """
     )
 
-# ---------------- WEB SEARCH ----------------
+# ---------------- SEARCH COMMAND ----------------
 
 @bot.message_handler(commands=["search"])
 def search(message):
@@ -172,7 +197,7 @@ def search(message):
 
     bot.send_message(message.chat.id,result)
 
-# ---------------- CRYPTO ----------------
+# ---------------- CRYPTO COMMAND ----------------
 
 @bot.message_handler(commands=["crypto"])
 def crypto(message):
@@ -187,7 +212,7 @@ def crypto(message):
 
     bot.send_message(message.chat.id,crypto_price(coin))
 
-# ---------------- IMAGE ----------------
+# ---------------- IMAGE COMMAND ----------------
 
 @bot.message_handler(commands=["image"])
 def image(message):
@@ -209,7 +234,7 @@ def image(message):
 # ---------------- CODING ASSISTANT ----------------
 
 @bot.message_handler(commands=["code"])
-def coding(message):
+def code(message):
 
     prompt=message.text.replace("/code","").strip()
 
@@ -232,7 +257,7 @@ def coding(message):
 
     bot.reply_to(message,res.choices[0].message.content)
 
-# ---------------- PHOTO ANALYSIS ----------------
+# ---------------- IMAGE ANALYSIS ----------------
 
 @bot.message_handler(content_types=["photo"])
 def photo(message):
