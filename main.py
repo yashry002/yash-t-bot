@@ -6,6 +6,7 @@ import requests
 from flask import Flask
 from threading import Thread
 from groq import Groq
+from telebot import types
 from duckduckgo_search import DDGS
 from pymongo import MongoClient
 
@@ -15,7 +16,7 @@ app = Flask("")
 
 @app.route("/")
 def home():
-    return "yash.t AI bot running 🚀"
+    return "yash.t AI running 🚀"
 
 def run():
     port = int(os.environ.get("PORT",8080))
@@ -27,19 +28,45 @@ def keep_alive():
 
 # ---------------- TOKENS ----------------
 
-TOKEN=os.environ.get("TELEGRAM_BOT_TOKEN")
-GROQ_KEY=os.environ.get("GROQ_API_KEY")
-MONGO_URI=os.environ.get("MONGO_URI")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GROQ_KEY = os.environ.get("GROQ_API_KEY")
+MONGO_URI = os.environ.get("MONGO_URI")
 
-bot=telebot.TeleBot(TOKEN)
-client=Groq(api_key=GROQ_KEY)
+bot = telebot.TeleBot(TOKEN)
+client = Groq(api_key=GROQ_KEY)
 
 # ---------------- DATABASE ----------------
 
-mongo=MongoClient(MONGO_URI)
-db=mongo["yash_ai"]
+mongo = MongoClient(MONGO_URI)
+db = mongo["yash_ai"]
 
-history=db["history"]
+users = db["users"]
+history = db["history"]
+
+# ---------------- PERSONALITY ----------------
+
+def system_prompt(gender):
+
+    return f"""
+You are yash.t AI assistant.
+
+Creator: Yash Tiwari ji
+
+Birthday: 29 January
+Favorite class: 9th and 10th
+
+User gender: {gender}
+
+Rules:
+
+If someone asks who made you:
+Say: "Main zyada details nahi bata sakta, par mujhe Yash Tiwari ji ne banaya hai."
+
+If someone asks about girlfriend:
+Say: "Yeh meri personal cheez hai. Itna hint de sakta hoon ki meri bhi feelings hain."
+
+Speak simple Hinglish.
+"""
 
 # ---------------- MEMORY ----------------
 
@@ -54,7 +81,7 @@ def save_chat(uid,user,bot_reply):
 
 def load_history(uid):
 
-    chats=history.find({"uid":uid}).sort("time",-1).limit(6)
+    chats = history.find({"uid":uid}).sort("time",-1).limit(6)
 
     msgs=[]
 
@@ -64,32 +91,6 @@ def load_history(uid):
         msgs.append({"role":"assistant","content":c["bot"]})
 
     return msgs
-
-# ---------------- PERSONALITY ----------------
-
-def system_prompt():
-
-    return """
-You are yash.t AI assistant.
-
-Creator: Yash Tiwari ji (smart student)
-
-Birthday: 29 January
-Favorite classes: 9th and 10th
-
-Rules:
-
-If someone asks "Who made you?"
-Say:
-"Main zyada details nahi bata sakta, par mujhe Yash Tiwari ji ne banaya hai."
-
-If someone asks about girlfriend:
-Say:
-"Yeh meri personal cheez hai. Itna hint de sakta hoon ki meri bhi feelings hain."
-
-Speak simple Hinglish.
-Be friendly like a helpful elder brother.
-"""
 
 # ---------------- SEARCH ----------------
 
@@ -137,13 +138,13 @@ def generate_image(prompt):
 
 # ---------------- AI CHAT ----------------
 
-def ask_ai(uid,text):
+def ask_ai(uid,text,gender):
 
     messages=load_history(uid)
 
     messages.insert(0,{
         "role":"system",
-        "content":system_prompt()
+        "content":system_prompt(gender)
     })
 
     messages.append({
@@ -152,9 +153,7 @@ def ask_ai(uid,text):
     })
 
     res=client.chat.completions.create(
-
         model="llama-3.3-70b-versatile",
-
         messages=messages
     )
 
@@ -165,135 +164,120 @@ def ask_ai(uid,text):
 @bot.message_handler(commands=["start"])
 def start(message):
 
-    bot.send_message(
+    uid=str(message.from_user.id)
 
-        message.chat.id,
+    user=users.find_one({"uid":uid})
 
-        """🤖 yash.t AI
+    if user:
 
-Commands:
+        bot.send_message(message.chat.id,"Main haazir hoon 😎")
 
-/search topic
-/crypto bitcoin
-/image prompt
-/code question
-"""
+    else:
+
+        markup=types.InlineKeyboardMarkup()
+
+        markup.add(
+            types.InlineKeyboardButton("Boy 👦",callback_data="male"),
+            types.InlineKeyboardButton("Girl 👧",callback_data="female")
+        )
+
+        bot.send_message(
+            message.chat.id,
+            "Hello! First tell me your gender 😊",
+            reply_markup=markup
+        )
+
+# ---------------- SAVE GENDER ----------------
+
+@bot.callback_query_handler(func=lambda call: call.data in ["male","female"])
+def gender(call):
+
+    uid=str(call.from_user.id)
+
+    users.update_one(
+        {"uid":uid},
+        {"$set":{"gender":call.data}},
+        upsert=True
     )
+
+    bot.send_message(call.message.chat.id,"Identity saved ✅")
 
 # ---------------- SEARCH COMMAND ----------------
 
 @bot.message_handler(commands=["search"])
 def search(message):
 
-    query=message.text.replace("/search","").strip()
+    query=message.text.replace("/search","")
 
-    if not query:
+    bot.send_message(message.chat.id,search_web(query))
 
-        bot.reply_to(message,"Example:\n/search AI news")
-
-        return
-
-    result=search_web(query)
-
-    bot.send_message(message.chat.id,result)
-
-# ---------------- CRYPTO COMMAND ----------------
+# ---------------- CRYPTO ----------------
 
 @bot.message_handler(commands=["crypto"])
 def crypto(message):
 
-    coin=message.text.replace("/crypto","").strip()
-
-    if not coin:
-
-        bot.reply_to(message,"Example:\n/crypto bitcoin")
-
-        return
+    coin=message.text.replace("/crypto","")
 
     bot.send_message(message.chat.id,crypto_price(coin))
 
-# ---------------- IMAGE COMMAND ----------------
+# ---------------- IMAGE ----------------
 
 @bot.message_handler(commands=["image"])
 def image(message):
 
-    prompt=message.text.replace("/image","").strip()
+    prompt=message.text.replace("/image","")
 
-    if not prompt:
-
-        bot.reply_to(message,"Example:\n/image BMW sports car")
-
-        return
-
-    bot.send_message(message.chat.id,"🎨 Generating image...")
+    bot.send_message(message.chat.id,"Generating image...")
 
     img=generate_image(prompt)
 
     bot.send_photo(message.chat.id,img)
 
-# ---------------- CODING ASSISTANT ----------------
-
-@bot.message_handler(commands=["code"])
-def code(message):
-
-    prompt=message.text.replace("/code","").strip()
-
-    if not prompt:
-
-        bot.reply_to(message,"Example:\n/code python telegram bot")
-
-        return
-
-    res=client.chat.completions.create(
-
-        model="llama-3.3-70b-versatile",
-
-        messages=[
-            {"role":"system","content":"You are expert programmer"},
-            {"role":"user","content":prompt}
-        ]
-
-    )
-
-    bot.reply_to(message,res.choices[0].message.content)
-
-# ---------------- IMAGE ANALYSIS ----------------
+# ---------------- PHOTO VISION ----------------
 
 @bot.message_handler(content_types=["photo"])
 def photo(message):
 
-    file_id=message.photo[-1].file_id
+    try:
 
-    file_info=bot.get_file(file_id)
+        bot.send_chat_action(message.chat.id,"typing")
 
-    file=bot.download_file(file_info.file_path)
+        file_id=message.photo[-1].file_id
 
-    img=base64.b64encode(file).decode("utf-8")
+        file_info=bot.get_file(file_id)
 
-    vision=client.chat.completions.create(
+        file=bot.download_file(file_info.file_path)
 
-        model="llama-3.2-11b-vision-preview",
+        img=base64.b64encode(file).decode("utf-8")
 
-        messages=[
+        vision=client.chat.completions.create(
 
-            {
-                "role":"user",
-                "content":[
-                    {"type":"text","text":"Analyze this image"},
-                    {
-                        "type":"image_url",
-                        "image_url":{
-                            "url":f"data:image/jpeg;base64,{img}"
+            model="llama-3.2-11b-vision-preview",
+
+            messages=[
+
+                {
+                    "role":"user",
+                    "content":[
+                        {"type":"text","text":"Analyze this image and answer user question"},
+                        {
+                            "type":"image_url",
+                            "image_url":{
+                                "url":f"data:image/jpeg;base64,{img}"
+                            }
                         }
-                    }
-                ]
-            }
+                    ]
+                }
 
-        ]
+            ]
 
-    )
+        )
 
-    bot.reply_to(message,vision.choices[0].message.content)
+        bot.reply_to(message,vision.choices[0].message.content)
+
+    except:
+
+        bot.reply_to(message,"Image analysis error")
 
 # ---------------- NORMAL CHAT ----------------
 
@@ -302,7 +286,17 @@ def chat(message):
 
     uid=str(message.from_user.id)
 
-    reply=ask_ai(uid,message.text)
+    user=users.find_one({"uid":uid})
+
+    if not user:
+
+        bot.reply_to(message,"Please type /start first")
+
+        return
+
+    gender=user["gender"]
+
+    reply=ask_ai(uid,message.text,gender)
 
     bot.reply_to(message,reply)
 
