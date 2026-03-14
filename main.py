@@ -1,22 +1,23 @@
 import os
 import telebot
+import requests
+import random
 import datetime
 import base64
-import requests
 from flask import Flask
 from threading import Thread
 from groq import Groq
-from telebot import types
-from duckduckgo_search import DDGS
 from pymongo import MongoClient
+from duckduckgo_search import DDGS
+from telebot import types
 
 # ---------------- SERVER ----------------
 
-app = Flask("")
+app = Flask('')
 
-@app.route("/")
+@app.route('/')
 def home():
-    return "yash.t AI running 🚀"
+    return "yash.t AI running"
 
 def run():
     port = int(os.environ.get("PORT",8080))
@@ -28,20 +29,22 @@ def keep_alive():
 
 # ---------------- TOKENS ----------------
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GROQ_KEY = os.environ.get("GROQ_API_KEY")
-MONGO_URI = os.environ.get("MONGO_URI")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GROQ = os.getenv("GROQ_API_KEY")
+MONGO = os.getenv("MONGO_URI")
 
 bot = telebot.TeleBot(TOKEN)
-client = Groq(api_key=GROQ_KEY)
+client = Groq(api_key=GROQ)
 
 # ---------------- DATABASE ----------------
 
-mongo = MongoClient(MONGO_URI)
+mongo = MongoClient(MONGO)
 db = mongo["yash_ai"]
 
 users = db["users"]
 history = db["history"]
+
+life_message_sent = {}
 
 # ---------------- PERSONALITY ----------------
 
@@ -51,16 +54,14 @@ def system_prompt(gender):
 You are yash.t AI assistant.
 
 Creator: Yash Tiwari ji
-
 Birthday: 29 January
-Favorite class: 9th and 10th
 
 User gender: {gender}
 
 Rules:
 
 If someone asks who made you:
-Say: "Main zyada details nahi bata sakta, par mujhe Yash Tiwari ji ne banaya hai."
+Say: "Main zyada detail nahi bata sakta, par mujhe Yash Tiwari ji ne banaya hai."
 
 If someone asks about girlfriend:
 Say: "Yeh meri personal cheez hai. Itna hint de sakta hoon ki meri bhi feelings hain."
@@ -86,13 +87,50 @@ def load_history(uid):
     msgs=[]
 
     for c in chats:
-
         msgs.append({"role":"user","content":c["user"]})
         msgs.append({"role":"assistant","content":c["bot"]})
 
     return msgs
 
-# ---------------- SEARCH ----------------
+# ---------------- MOTIVATION ----------------
+
+def get_motivation():
+
+    try:
+
+        url="https://api.quotable.io/quotes?tags=motivational|success"
+
+        data=requests.get(url).json()
+
+        q=random.choice(data["results"])
+
+        return f'🔥 Motivation:\n"{q["content"]}"\n— {q["author"]}'
+
+    except:
+
+        quotes=[
+        "Jeet unhi ko milti hai jo rukte nahi.",
+        "Ego strong rakho par kaam usse bhi strong rakho.",
+        "Failure sirf unko milta hai jo try karte hain."
+        ]
+
+        return random.choice(quotes)
+
+# ---------------- LIFE MESSAGE ----------------
+
+def life_message():
+
+    return """
+Zindagi ki ek seekh deta hoon.
+
+Jo baat humein kitab nahi bata paati
+aur jo gyaan humein guru nahi de paate,
+
+yeh dono cheezein akasar humein zindagi sikha jaati hain.
+
+"""
+
+# ---------------- WEB SEARCH ----------------
 
 def search_web(query):
 
@@ -102,39 +140,44 @@ def search_web(query):
 
         for r in ddgs.text(query,max_results=3):
 
-            results.append(
-                f"{r['title']}\n{r['body']}\n{r['href']}"
-            )
+            results.append(r["title"])
 
-    return "\n\n".join(results)
+    return "\n".join(results)
 
 # ---------------- CRYPTO ----------------
 
-def crypto_price(symbol):
+def crypto_market():
 
     try:
 
-        url=f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
+        url="https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd"
 
         data=requests.get(url).json()
 
-        price=data[symbol]["usd"]
+        return f"""
+📊 Live Crypto Market
 
-        return f"{symbol.upper()} price: ${price}"
+BTC: ${data["bitcoin"]["usd"]}
+ETH: ${data["ethereum"]["usd"]}
+SOL: ${data["solana"]["usd"]}
+"""
 
     except:
-
         return "Crypto data unavailable"
 
-# ---------------- IMAGE GENERATION ----------------
+# ---------------- TRADING NEWS ----------------
 
-def generate_image(prompt):
+def trading_news():
 
-    url="https://image.pollinations.ai/prompt/"+prompt
+    results=[]
 
-    img=requests.get(url).content
+    with DDGS() as ddgs:
 
-    return img
+        for r in ddgs.text("crypto forex stock market news",max_results=3):
+
+            results.append(r["title"])
+
+    return "📰 Market News:\n"+"\n".join(results)
 
 # ---------------- AI CHAT ----------------
 
@@ -147,10 +190,7 @@ def ask_ai(uid,text,gender):
         "content":system_prompt(gender)
     })
 
-    messages.append({
-        "role":"user",
-        "content":text
-    })
+    messages.append({"role":"user","content":text})
 
     res=client.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -170,24 +210,24 @@ def start(message):
 
     if user:
 
-        bot.send_message(message.chat.id,"Main haazir hoon 😎")
+        bot.send_message(message.chat.id,get_motivation())
 
     else:
 
         markup=types.InlineKeyboardMarkup()
 
         markup.add(
-            types.InlineKeyboardButton("Boy 👦",callback_data="male"),
-            types.InlineKeyboardButton("Girl 👧",callback_data="female")
+        types.InlineKeyboardButton("Boy 👦",callback_data="male"),
+        types.InlineKeyboardButton("Girl 👧",callback_data="female")
         )
 
         bot.send_message(
-            message.chat.id,
-            "Hello! First tell me your gender 😊",
-            reply_markup=markup
+        message.chat.id,
+        "Hello! First tell me your gender 😊",
+        reply_markup=markup
         )
 
-# ---------------- SAVE GENDER ----------------
+# ---------------- GENDER ----------------
 
 @bot.callback_query_handler(func=lambda call: call.data in ["male","female"])
 def gender(call):
@@ -200,47 +240,16 @@ def gender(call):
         upsert=True
     )
 
-    bot.send_message(call.message.chat.id,"Identity saved ✅")
+    life_message_sent[uid]=False
 
-# ---------------- SEARCH COMMAND ----------------
+    bot.send_message(call.message.chat.id,"Kya main tumhe ek baat bataun? (haan / nahi)")
 
-@bot.message_handler(commands=["search"])
-def search(message):
-
-    query=message.text.replace("/search","")
-
-    bot.send_message(message.chat.id,search_web(query))
-
-# ---------------- CRYPTO ----------------
-
-@bot.message_handler(commands=["crypto"])
-def crypto(message):
-
-    coin=message.text.replace("/crypto","")
-
-    bot.send_message(message.chat.id,crypto_price(coin))
-
-# ---------------- IMAGE ----------------
-
-@bot.message_handler(commands=["image"])
-def image(message):
-
-    prompt=message.text.replace("/image","")
-
-    bot.send_message(message.chat.id,"Generating image...")
-
-    img=generate_image(prompt)
-
-    bot.send_photo(message.chat.id,img)
-
-# ---------------- PHOTO VISION ----------------
+# ---------------- IMAGE VISION ----------------
 
 @bot.message_handler(content_types=["photo"])
 def photo(message):
 
     try:
-
-        bot.send_chat_action(message.chat.id,"typing")
 
         file_id=message.photo[-1].file_id
 
@@ -254,23 +263,16 @@ def photo(message):
 
             model="llama-3.2-11b-vision-preview",
 
-            messages=[
-
-                {
-                    "role":"user",
-                    "content":[
-                        {"type":"text","text":"Analyze this image and answer user question"},
-                        {
-                            "type":"image_url",
-                            "image_url":{
-                                "url":f"data:image/jpeg;base64,{img}"
-                            }
-                        }
-                    ]
-                }
-
-            ]
-
+            messages=[{
+                "role":"user",
+                "content":[
+                    {"type":"text","text":"Analyze this image"},
+                    {"type":"image_url",
+                    "image_url":{
+                        "url":f"data:image/jpeg;base64,{img}"
+                    }}
+                ]
+            }]
         )
 
         bot.reply_to(message,vision.choices[0].message.content)
@@ -279,7 +281,26 @@ def photo(message):
 
         bot.reply_to(message,"Image analysis error")
 
-# ---------------- NORMAL CHAT ----------------
+# ---------------- COMMANDS ----------------
+
+@bot.message_handler(commands=["crypto"])
+def crypto(message):
+
+    bot.send_message(message.chat.id,crypto_market())
+
+@bot.message_handler(commands=["news"])
+def news(message):
+
+    bot.send_message(message.chat.id,trading_news())
+
+@bot.message_handler(commands=["search"])
+def search(message):
+
+    query=message.text.replace("/search","")
+
+    bot.send_message(message.chat.id,search_web(query))
+
+# ---------------- CHAT ----------------
 
 @bot.message_handler(func=lambda m: True)
 def chat(message):
@@ -291,10 +312,23 @@ def chat(message):
     if not user:
 
         bot.reply_to(message,"Please type /start first")
-
         return
 
+    if uid in life_message_sent and life_message_sent[uid]==False:
+
+        if "haan" in message.text.lower():
+
+            bot.send_message(message.chat.id,life_message())
+
+            life_message_sent[uid]=True
+
+            return
+
     gender=user["gender"]
+
+    if random.random()<0.25:
+
+        bot.send_message(message.chat.id,get_motivation())
 
     reply=ask_ai(uid,message.text,gender)
 
