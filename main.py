@@ -1,1 +1,292 @@
-    "code": "import os\nimport telebot\nimport json\nimport base64\nimport time\nimport datetime\nfrom groq import Groq\nfrom telebot import types\nfrom flask import Flask\nfrom threading import Thread\nfrom duckduckgo_search import DDGS\nfrom pymongo import MongoClient\n\n# --- WEB SERVER SETUP ---\napp = Flask('')\n\n@app.route('/')\ndef home():\n    return \"yash.t Master Engine is LIVE! 🚀\"\n\ndef run():\n    port = int(os.environ.get('PORT', 8080))\n    app.run(host='0.0.0.0', port=port)\n\ndef keep_alive():\n    t = Thread(target=run)\n    t.daemon = True\n    t.start()\n\n# --- CONFIGURATION ---\nTOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')\nAPI_KEY = os.environ.get('GROQ_API_KEY')\nMONGO_URI = os.environ.get('MONGO_URI')\n\nclient = Groq(api_key=API_KEY)\nbot = telebot.TeleBot(TOKEN)\n\n# --- DATABASE ---\ntry:\n    db_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)\n    db = db_client['yash_master_db']\n    users_col = db['users']\n    print(\"✅ Master Memory Connected!\")\nexcept Exception as e:\n    print(f\"❌ DB Error: {e}\")\n\n# --- TOOLS ---\ndef search_web(query):\n    try:\n        with DDGS() as ddgs:\n            res = [f\"{r['title']}: {r['body']}\\nSource: {r['href']}\" for r in ddgs.text(query, max_results=2)]\n        return \"\\n\\n\".join(res)\n    except:\n        return \"Search currently unavailable.\"\n\ndef get_current_info():\n    now = datetime.datetime.now()\n    return f\"Today's Date: {now.strftime('%d %B %Y')}, Day: {now.strftime('%A')}\"\n\n# --- MASTER PERSONALITY LOGIC ---\ndef get_master_prompt(gender):\n    info = get_current_info()\n    rules = f\"\"\"\n    - Your Name: yash.t\n    - Current Context: {info}\n    - Creator: Yash Tiwari ji (A very smart student). If asked 'Who made you' or 'Father', say: 'Main yeh zyada nahi bata sakta, personal hai. Par mujhe Yash Tiwari ji ne banaya hai jo ek hoshiyar student hain.'\n    - Love/GF: If asked, say: 'Sorry, meri personal cheez hai. Lekin han, itna hint de sakta hoon ki meri bhi feelings hain.' Then change the topic.\n    - Knowledge: Spiritual (Gita, Ramayana), modern news, and cultural festivals.\n    - Favorite Class: 9th and 10th. | Birthday: 29 January.\n    - Language: Simple Hinglish (Hindi + English). No complex English.\n    \"\"\"\n    if gender == \"male\":\n        return f\"{rules}\\nRole: Wise Bada Bhai. Focus: Stocks, Career, News. 😎\"\n    else:\n        return f\"{rules}\\nRole: Sweet AI Companion. Focus: Cooking, Makeup, Knowledge. Respectful. 😊🌸\"\n\n# --- HANDLERS ---\n@bot.message_handler(commands=['start'])\ndef send_welcome(message):\n    uid = str(message.from_user.id)\n    user = users_col.find_one({\"uid\": uid})\n    if user and 'gender' in user:\n        bot.send_message(message.chat.id, \"Main haazir hoon! Bol kya help karun? ✨\")\n    else:\n        markup = types.InlineKeyboardMarkup()\n        markup.add(types.InlineKeyboardButton(\"Male / Boy 👦\", callback_data=\"m\"),\n                   types.InlineKeyboardButton(\"Female / Girl 👧\", callback_data=\"f\"))\n        bot.reply_to(message, \"Hello! 😊 I'm yash.t. Pehle batao tum ladka ho ya ladki? ✨\", reply_markup=markup)\n\n@bot.callback_query_handler(func=lambda call: call.data in [\"m\", \"f\"])\ndef set_gender(call):\n    uid = str(call.from_user.id)\n    users_col.update_one({\"uid\": uid}, {\"$set\": {\"gender\": \"male\" if call.data == \"m\" else \"female\"}}, upsert=True)\n    bot.send_message(call.message.chat.id, \"Identity Saved! ✅\")\n    bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)\n\n@bot.message_handler(content_types=['photo', 'video'])\ndef handle_media(message):\n    uid = str(message.from_user.id)\n    user = users_col.find_one({\"uid\": uid})\n    if not user: return\n    bot.send_chat_action(message.chat.id, 'typing')\n    try:\n        file_id = message.photo[-1].file_id if message.content_type == 'photo' else message.video.thumbnail.file_id\n        file_path = bot.get_file(file_id).file_path\n        img_data = base64.b64encode(bot.download_file(file_path)).decode('utf-8')\n        \n        vision = client.chat.completions.create(\n            messages=[{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"Analyze this precisely.\"}, {\"type\": \"image_url\", \"image_url\": {\"url\": f\"data:image/jpeg;base64,{img_data}\"}}]}],\n            model=\"llama-3.2-11b-vision-preview\")\n        bot.reply_to(message, vision.choices[0].message.content)\n    except:\n        bot.reply_to(message, \"Media analyze karne mein error aaya. 🌸\")\n\n@bot.message_handler(func=lambda message: True)\ndef handle_chat(message):\n    uid = str(message.from_user.id)\n    user = users_col.find_one({\"uid\": uid})\n    if not user: return\n    bot.send_chat_action(message.chat.id, 'typing')\n    text = message.text.lower()\n    \n    if any(x in text for x in [\"mera naam\", \"name is\"]):\n        bot.reply_to(message, \"Wow! Tumhara naam sach mein pyara hai! ✨😊\"); return\n\n    try:\n        web = search_web(message.text) if any(x in text for x in ['today', 'news', 'stock', 'recipe']) else \"\"\n        res = client.chat.completions.create(\n            messages=[{\"role\": \"system\", \"content\": get_master_prompt(user['gender'])}, {\"role\": \"user\", \"content\": f\"Context: {web}\\nUser: {message.text}\"}],\n            model=\"llama-3.3-70b-versatile\")\n        bot.reply_to(message, res.choices[0].message.content)\n    except:\n        bot.reply_to(message, \"Network slow hai, thodi der mein pucho? 🌸\")\n\nif __name__ == \"__main__\":\n    keep_alive()\n    print(\"yash.t starting... 🚀\")\n    bot.infinity_polling(timeout=60, long_polling_timeout=20)"
+import os
+import telebot
+import datetime
+import base64
+import requests
+from flask import Flask
+from threading import Thread
+from groq import Groq
+from duckduckgo_search import DDGS
+from pymongo import MongoClient
+
+# ---------------- SERVER ----------------
+
+app = Flask("")
+
+@app.route("/")
+def home():
+    return "Yash.t AI Bot Running 🚀"
+
+def run():
+    port = int(os.environ.get("PORT",8080))
+    app.run(host="0.0.0.0",port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# ---------------- TOKENS ----------------
+
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GROQ_KEY = os.environ.get("GROQ_API_KEY")
+MONGO_URI = os.environ.get("MONGO_URI")
+
+bot = telebot.TeleBot(TOKEN)
+client = Groq(api_key=GROQ_KEY)
+
+# ---------------- DATABASE ----------------
+
+mongo = MongoClient(MONGO_URI)
+db = mongo["ai_memory"]
+
+users = db["users"]
+history = db["history"]
+
+# ---------------- MEMORY ----------------
+
+def save_chat(uid,user,bot_reply):
+
+    history.insert_one({
+        "uid":uid,
+        "user":user,
+        "bot":bot_reply,
+        "time":datetime.datetime.now()
+    })
+
+def load_history(uid):
+
+    chats = history.find({"uid":uid}).sort("time",-1).limit(6)
+
+    result=[]
+
+    for c in chats:
+
+        result.append({"role":"user","content":c["user"]})
+        result.append({"role":"assistant","content":c["bot"]})
+
+    return result
+
+# ---------------- SEARCH ----------------
+
+def search_web(query):
+
+    results=[]
+
+    try:
+
+        with DDGS() as ddgs:
+
+            for r in ddgs.text(query,max_results=3):
+
+                results.append(
+                    f"{r['title']}\n{r['body']}\n{r['href']}"
+                )
+
+    except:
+        return "Search error"
+
+    return "\n\n".join(results)
+
+# ---------------- CRYPTO ----------------
+
+def crypto_price(symbol):
+
+    try:
+
+        url=f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
+
+        data=requests.get(url).json()
+
+        price=data[symbol]["usd"]
+
+        return f"{symbol.upper()} price: ${price}"
+
+    except:
+
+        return "Crypto data unavailable"
+
+# ---------------- IMAGE GENERATION ----------------
+
+def generate_image(prompt):
+
+    url="https://image.pollinations.ai/prompt/"+prompt
+
+    img=requests.get(url).content
+
+    return img
+
+# ---------------- AI CHAT ----------------
+
+def ask_ai(uid,text):
+
+    messages=load_history(uid)
+
+    messages.append({
+        "role":"user",
+        "content":text
+    })
+
+    res=client.chat.completions.create(
+
+        model="llama-3.3-70b-versatile",
+
+        messages=messages
+    )
+
+    return res.choices[0].message.content
+
+# ---------------- START ----------------
+
+@bot.message_handler(commands=["start"])
+def start(message):
+
+    bot.send_message(
+
+        message.chat.id,
+
+        """🤖 Yash.t AI Bot
+
+Commands:
+
+/search topic
+/crypto bitcoin
+/image prompt
+/code question
+"""
+    )
+
+# ---------------- WEB SEARCH ----------------
+
+@bot.message_handler(commands=["search"])
+def search(message):
+
+    query=message.text.replace("/search","").strip()
+
+    if not query:
+
+        bot.reply_to(message,"Example:\n/search AI news")
+
+        return
+
+    result=search_web(query)
+
+    bot.send_message(message.chat.id,result)
+
+# ---------------- CRYPTO ----------------
+
+@bot.message_handler(commands=["crypto"])
+def crypto(message):
+
+    coin=message.text.replace("/crypto","").strip()
+
+    if not coin:
+
+        bot.reply_to(message,"Example:\n/crypto bitcoin")
+
+        return
+
+    bot.send_message(message.chat.id,crypto_price(coin))
+
+# ---------------- IMAGE ----------------
+
+@bot.message_handler(commands=["image"])
+def image(message):
+
+    prompt=message.text.replace("/image","").strip()
+
+    if not prompt:
+
+        bot.reply_to(message,"Example:\n/image BMW sports car")
+
+        return
+
+    bot.send_message(message.chat.id,"🎨 Generating image...")
+
+    img=generate_image(prompt)
+
+    bot.send_photo(message.chat.id,img)
+
+# ---------------- CODING ASSISTANT ----------------
+
+@bot.message_handler(commands=["code"])
+def coding(message):
+
+    prompt=message.text.replace("/code","").strip()
+
+    if not prompt:
+
+        bot.reply_to(message,"Example:\n/code python telegram bot")
+
+        return
+
+    res=client.chat.completions.create(
+
+        model="llama-3.3-70b-versatile",
+
+        messages=[
+            {"role":"system","content":"You are expert programmer"},
+            {"role":"user","content":prompt}
+        ]
+
+    )
+
+    bot.reply_to(message,res.choices[0].message.content)
+
+# ---------------- PHOTO ANALYSIS ----------------
+
+@bot.message_handler(content_types=["photo"])
+def photo(message):
+
+    file_id=message.photo[-1].file_id
+
+    file_info=bot.get_file(file_id)
+
+    file=bot.download_file(file_info.file_path)
+
+    img=base64.b64encode(file).decode("utf-8")
+
+    vision=client.chat.completions.create(
+
+        model="llama-3.2-11b-vision-preview",
+
+        messages=[
+
+            {
+                "role":"user",
+                "content":[
+                    {"type":"text","text":"Analyze this image"},
+                    {
+                        "type":"image_url",
+                        "image_url":{
+                            "url":f"data:image/jpeg;base64,{img}"
+                        }
+                    }
+                ]
+            }
+
+        ]
+
+    )
+
+    bot.reply_to(message,vision.choices[0].message.content)
+
+# ---------------- NORMAL CHAT ----------------
+
+@bot.message_handler(func=lambda m: True)
+def chat(message):
+
+    uid=str(message.from_user.id)
+
+    reply=ask_ai(uid,message.text)
+
+    bot.reply_to(message,reply)
+
+    save_chat(uid,message.text,reply)
+
+# ---------------- RUN ----------------
+
+if __name__=="__main__":
+
+    keep_alive()
+
+    bot.infinity_polling()
