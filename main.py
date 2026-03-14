@@ -11,11 +11,11 @@ from pymongo import MongoClient
 from duckduckgo_search import DDGS
 from telebot import types
 
-# ---------------- SERVER ----------------
+# ================= SERVER =================
 
-app = Flask('')
+app = Flask("")
 
-@app.route('/')
+@app.route("/")
 def home():
     return "yash.t AI running"
 
@@ -27,18 +27,18 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ---------------- TOKENS ----------------
+# ================= TOKENS =================
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ = os.getenv("GROQ_API_KEY")
-MONGO = os.getenv("MONGO_URI")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
+MONGO_URI = os.getenv("MONGO_URI")
 
 bot = telebot.TeleBot(TOKEN)
-client = Groq(api_key=GROQ)
+client = Groq(api_key=GROQ_KEY)
 
-# ---------------- DATABASE ----------------
+# ================= DATABASE =================
 
-mongo = MongoClient(MONGO)
+mongo = MongoClient(MONGO_URI)
 db = mongo["yash_ai"]
 
 users = db["users"]
@@ -46,7 +46,7 @@ history = db["history"]
 
 life_message_sent = {}
 
-# ---------------- PERSONALITY ----------------
+# ================= PERSONALITY =================
 
 def system_prompt(gender):
 
@@ -66,10 +66,10 @@ Say: "Main zyada detail nahi bata sakta, par mujhe Yash Tiwari ji ne banaya hai.
 If someone asks about girlfriend:
 Say: "Yeh meri personal cheez hai. Itna hint de sakta hoon ki meri bhi feelings hain."
 
-Speak simple Hinglish.
+Speak Hinglish and behave friendly.
 """
 
-# ---------------- MEMORY ----------------
+# ================= MEMORY =================
 
 def save_chat(uid,user,bot_reply):
 
@@ -87,12 +87,28 @@ def load_history(uid):
     msgs=[]
 
     for c in chats:
+
         msgs.append({"role":"user","content":c["user"]})
         msgs.append({"role":"assistant","content":c["bot"]})
 
     return msgs
 
-# ---------------- MOTIVATION ----------------
+# ================= LIFE MESSAGE =================
+
+def life_message():
+
+    return """
+Zindagi ki ek seekh deta hoon.
+
+Jo baat humein kitab nahi bata paati
+aur jo gyaan humein guru nahi de paate,
+
+yeh dono cheezein humein zindagi sikha jaati hain.
+
+Sab samay-samay ki baat hai.
+"""
+
+# ================= MOTIVATION =================
 
 def get_motivation():
 
@@ -108,29 +124,15 @@ def get_motivation():
 
     except:
 
-        quotes=[
+        fallback=[
         "Jeet unhi ko milti hai jo rukte nahi.",
-        "Ego strong rakho par kaam usse bhi strong rakho.",
-        "Failure sirf unko milta hai jo try karte hain."
+        "Strong ego nahi strong mindset chahiye.",
+        "Failure sirf temporary hota hai."
         ]
 
-        return random.choice(quotes)
+        return random.choice(fallback)
 
-# ---------------- LIFE MESSAGE ----------------
-
-def life_message():
-
-    return """
-Zindagi ki ek seekh deta hoon.
-
-Jo baat humein kitab nahi bata paati
-aur jo gyaan humein guru nahi de paate,
-
-yeh dono cheezein akasar humein zindagi sikha jaati hain.
-
-"""
-
-# ---------------- WEB SEARCH ----------------
+# ================= WEB SEARCH =================
 
 def search_web(query):
 
@@ -144,7 +146,7 @@ def search_web(query):
 
     return "\n".join(results)
 
-# ---------------- CRYPTO ----------------
+# ================= CRYPTO =================
 
 def crypto_market():
 
@@ -155,7 +157,7 @@ def crypto_market():
         data=requests.get(url).json()
 
         return f"""
-📊 Live Crypto Market
+📊 Crypto Market
 
 BTC: ${data["bitcoin"]["usd"]}
 ETH: ${data["ethereum"]["usd"]}
@@ -165,7 +167,7 @@ SOL: ${data["solana"]["usd"]}
     except:
         return "Crypto data unavailable"
 
-# ---------------- TRADING NEWS ----------------
+# ================= NEWS =================
 
 def trading_news():
 
@@ -179,7 +181,7 @@ def trading_news():
 
     return "📰 Market News:\n"+"\n".join(results)
 
-# ---------------- AI CHAT ----------------
+# ================= AI CHAT =================
 
 def ask_ai(uid,text,gender):
 
@@ -199,7 +201,7 @@ def ask_ai(uid,text,gender):
 
     return res.choices[0].message.content
 
-# ---------------- START ----------------
+# ================= START =================
 
 @bot.message_handler(commands=["start"])
 def start(message):
@@ -223,11 +225,11 @@ def start(message):
 
         bot.send_message(
         message.chat.id,
-        "Hello! First tell me your gender 😊",
+        "Hello! First tell me your gender",
         reply_markup=markup
         )
 
-# ---------------- GENDER ----------------
+# ================= GENDER =================
 
 @bot.callback_query_handler(func=lambda call: call.data in ["male","female"])
 def gender(call):
@@ -244,67 +246,55 @@ def gender(call):
 
     bot.send_message(call.message.chat.id,"Kya main tumhe ek baat bataun? (haan / nahi)")
 
-# ---------------- IMAGE VISION ----------------
-@bot.message_handler(content_types=["photo"])
-def photo_handler(message):
+# ================= IMAGE VISION =================
 
-    uid = str(message.from_user.id)
+@bot.message_handler(content_types=["photo"])
+def handle_photo(message):
 
     try:
 
         bot.send_chat_action(message.chat.id,"typing")
 
-        # get highest resolution photo
         file_id = message.photo[-1].file_id
-
         file_info = bot.get_file(file_id)
 
         downloaded_file = bot.download_file(file_info.file_path)
 
-        # convert image to base64
         img_base64 = base64.b64encode(downloaded_file).decode("utf-8")
 
-        # send to vision model
-        response = client.chat.completions.create(
-
-            model="llama-3.2-11b-vision-preview",
-
+        completion = client.chat.completions.create(
+            model="llama-3.2-90b-vision-preview",
             messages=[
                 {
-                    "role": "user",
-                    "content": [
+                    "role":"user",
+                    "content":[
                         {
-                            "type": "text",
-                            "text": "User sent this image. Identify what is in the image and answer the question."
+                            "type":"text",
+                            "text":"Analyze this image. Identify objects, brand, and explain."
                         },
                         {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{img_base64}"
+                            "type":"image_url",
+                            "image_url":{
+                                "url":f"data:image/jpeg;base64,{img_base64}"
                             }
                         }
                     ]
                 }
             ],
-
-            max_tokens=500
+            max_tokens=600
         )
 
-        answer = response.choices[0].message.content
+        result = completion.choices[0].message.content
 
-        bot.reply_to(message, answer)
+        bot.reply_to(message,result)
 
     except Exception as e:
 
-        print("VISION ERROR:",e)
+        print(e)
 
-        bot.reply_to(
-            message,
-            "Image analyze nahi ho paayi. Please clear photo bhejo."
-        )
+        bot.reply_to(message,"Image analyze nahi ho paayi.")
 
-
-# ---------------- COMMANDS ----------------
+# ================= COMMANDS =================
 
 @bot.message_handler(commands=["crypto"])
 def crypto(message):
@@ -323,7 +313,7 @@ def search(message):
 
     bot.send_message(message.chat.id,search_web(query))
 
-# ---------------- CHAT ----------------
+# ================= CHAT =================
 
 @bot.message_handler(func=lambda m: True)
 def chat(message):
@@ -359,7 +349,7 @@ def chat(message):
 
     save_chat(uid,message.text,reply)
 
-# ---------------- RUN ----------------
+# ================= RUN =================
 
 if __name__=="__main__":
 
